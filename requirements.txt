@@ -1,0 +1,56 @@
+# Spotify Music Manager - Dependencies
+
+## Frontend Dependencies (CDN-based - No installation required)
+- React 18 (via CDN)
+- React DOM 18 (via CDN)
+- Babel Standalone (via CDN)
+- Tailwind CSS (via CDN)
+
+## Browser Requirements
+- Modern browser with ES6+ support
+- JavaScript enabled
+- Local storage support
+
+## Spotify API Requirements
+- Spotify Developer Account
+- Registered Application with:
+  - Client ID: 6aa4b46ee49d40a292632af532a593b3
+  - Client Secret: d59645a4c1ae4313a892f62a3abbabf7
+  - Redirect URI: http://127.0.0.1:3000/callback.html
+
+## Server Requirements
+- Python 3.x (for local HTTP server)
+- OR any static file server
+
+## API Scopes Required
+- user-library-read (to read liked songs)
+- playlist-modify-private (to create private playlists)
+- playlist-modify-public (to create public playlists)
+
+## Files Structure
+```
+spotify feature/
+├── index.html (original vanilla JS version)
+├── callback.html (OAuth callback handler)  
+├── app.js (vanilla JS implementation)
+├── react-app.html (React version - NEW)
+├── SpotifyMusicManager.tsx (React component source)
+└── requirements.txt (this file)
+```
+
+## Usage Instructions
+1. Start local server: `python -m http.server 3000`
+2. Open: http://127.0.0.1:3000/react-app.html
+3. Click "Login with Spotify"
+4. Authorize application  
+5. Transfer liked songs to playlist
+
+## Features Implemented
+✅ OAuth 2.0 Authentication Flow
+✅ Spotify Web API Integration
+✅ Playlist Creation with Custom Names
+✅ Bulk Song Transfer (batched API calls)
+✅ Advanced Options (Public/Private, Song Limits)
+✅ Responsive Design with Spotify Theme
+✅ Error Handling and Loading States
+✅ Direct Spotify Links to Created Playlists

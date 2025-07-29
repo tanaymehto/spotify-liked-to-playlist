@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Callback</title>
+</head>
+<body>
+  <h2>Loading...</h2>
+  <script>
+    const code = new URLSearchParams(window.location.search).get('code');
+    if (code) {
+      fetch('https://accounts.spotify.com/api/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Authorization': 'Basic ' + btoa('6aa4b46ee49d40a292632af532a593b3:d59645a4c1ae4313a892f62a3abbabf7')
+        },
+        body: new URLSearchParams({
+          grant_type: 'authorization_code',
+          code: code,
+          redirect_uri: 'http://127.0.0.1:3000/callback.html'
+        })
+      })
+      .then(res => res.json())
+      .then(data => {
+        localStorage.setItem('access_token', data.access_token);
+        window.location.href = 'index.html';
+      });
+    } else {
+      document.body.innerHTML = '<h2>No code found in URL.</h2>';
+    }
+  </script>
+</body>
+</html>
