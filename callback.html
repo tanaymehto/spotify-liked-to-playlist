@@ -22,9 +22,24 @@
       })
       .then(res => res.json())
       .then(data => {
-        localStorage.setItem('access_token', data.access_token);
-        window.location.href = 'index.html';
-      });
+        if (data.access_token) {
+          localStorage.setItem('access_token', data.access_token);
+          
+          // Calculate and store expiry time (extend to 3 hours for better UX)
+          const expiresIn = data.expires_in || 3600; // Default to 1 hour from Spotify
+          const extendedExpiry = Math.max(expiresIn, 10800); // Minimum 3 hours
+          const expiryTime = new Date().getTime() + (extendedExpiry * 1000);
+          localStorage.setItem('token_expiry', expiryTime.toString());
+          
+          window.location.href = 'index.html';
+        } else {
+          document.body.innerHTML = '<h2>Failed to get access token.</h2>';
+        }
+      })
+      .catch(error => {
+        console.error('OAuth callback error:', error);
+        document.body.innerHTML = '<h2>Authentication failed. Please try again.</h2>';
+      });;
     } else {
       document.body.innerHTML = '<h2>No code found in URL.</h2>';
     }

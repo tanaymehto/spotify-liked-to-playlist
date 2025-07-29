@@ -138,16 +138,19 @@
                     const now = new Date().getTime();
                     const expiryTime = parseInt(tokenExpiry);
                     
-                    if (now < expiryTime) {
+                    // Give 5 minute buffer before expiry
+                    if (now < (expiryTime - 300000)) {
                         setIsLoggedIn(true);
                     } else {
-                        // Token expired, clear it
+                        // Token expired or about to expire, clear it
                         localStorage.removeItem('access_token');
                         localStorage.removeItem('token_expiry');
                         setIsLoggedIn(false);
                     }
                 } else if (token) {
-                    // Old token without expiry, keep it for backward compatibility
+                    // Old token without expiry, keep it and add expiry (assume valid for 3 hours)
+                    const newExpiryTime = new Date().getTime() + (10800 * 1000); // 3 hours
+                    localStorage.setItem('token_expiry', newExpiryTime.toString());
                     setIsLoggedIn(true);
                 }
 
@@ -192,9 +195,10 @@
                     if (data.access_token) {
                         localStorage.setItem('access_token', data.access_token);
                         
-                        // Calculate and store expiry time (default 1 hour)
-                        const expiresIn = data.expires_in || 3600; // Default to 1 hour
-                        const expiryTime = new Date().getTime() + (expiresIn * 1000);
+                        // Calculate and store expiry time (extend to 3 hours for better UX)
+                        const expiresIn = data.expires_in || 3600; // Default to 1 hour from Spotify
+                        const extendedExpiry = Math.max(expiresIn, 10800); // Minimum 3 hours
+                        const expiryTime = new Date().getTime() + (extendedExpiry * 1000);
                         localStorage.setItem('token_expiry', expiryTime.toString());
                         
                         setIsLoggedIn(true);
@@ -523,23 +527,21 @@
                         {!isLoggedIn && (
                             <section className="mb-8">
                                 <div className="min-h-[60vh] flex items-center justify-center">
-                                    <Card className="w-full max-w-lg">
-                                        <div className="p-12 text-center">
-                                            <div className="mb-8">
-                                                <div className="text-6xl mb-4">🎵</div>
-                                                <h3 className="text-2xl font-bold text-white mb-4">Ready to Sync Your Music?</h3>
-                                                <p className="text-gray-400 text-lg leading-relaxed">
-                                                    Connect your Spotify account to start transferring your liked songs into organized playlists
-                                                </p>
-                                            </div>
-                                            <Button onClick={handleLogin} className="rounded-[30px] py-4 px-10 text-lg font-semibold shadow-lg hover:shadow-xl transition-all duration-300">
-                                                <LogInIcon /> Login with Spotify
-                                            </Button>
-                                            <p className="text-xs text-gray-500 mt-6">
-                                                Your session will be saved for easy access
+                                    <div className="w-full max-w-lg text-center">
+                                        <div className="mb-8">
+                                            <div className="text-6xl mb-4">🎵</div>
+                                            <h3 className="text-2xl font-bold text-white mb-4">Ready to Sync Your Music?</h3>
+                                            <p className="text-gray-400 text-lg leading-relaxed">
+                                                Connect your Spotify account to start transferring your liked songs into organized playlists
                                             </p>
                                         </div>
-                                    </Card>
+                                        <Button onClick={handleLogin} className="rounded-[30px] py-4 px-10 text-lg font-semibold shadow-lg hover:shadow-xl transition-all duration-300">
+                                            <LogInIcon /> Login with Spotify
+                                        </Button>
+                                        <p className="text-xs text-gray-500 mt-6">
+                                            Your session will be saved for easy access
+                                        </p>
+                                    </div>
                                 </div>
                             </section>
                         )}
