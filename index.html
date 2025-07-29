@@ -131,7 +131,25 @@
             // Check if user is logged in on component mount
             useEffect(() => {
                 const token = localStorage.getItem('access_token');
-                setIsLoggedIn(!!token);
+                const tokenExpiry = localStorage.getItem('token_expiry');
+                
+                // Check if token exists and hasn't expired
+                if (token && tokenExpiry) {
+                    const now = new Date().getTime();
+                    const expiryTime = parseInt(tokenExpiry);
+                    
+                    if (now < expiryTime) {
+                        setIsLoggedIn(true);
+                    } else {
+                        // Token expired, clear it
+                        localStorage.removeItem('access_token');
+                        localStorage.removeItem('token_expiry');
+                        setIsLoggedIn(false);
+                    }
+                } else if (token) {
+                    // Old token without expiry, keep it for backward compatibility
+                    setIsLoggedIn(true);
+                }
 
                 // Handle OAuth callback
                 const urlParams = new URLSearchParams(window.location.search);
@@ -173,6 +191,12 @@
                     
                     if (data.access_token) {
                         localStorage.setItem('access_token', data.access_token);
+                        
+                        // Calculate and store expiry time (default 1 hour)
+                        const expiresIn = data.expires_in || 3600; // Default to 1 hour
+                        const expiryTime = new Date().getTime() + (expiresIn * 1000);
+                        localStorage.setItem('token_expiry', expiryTime.toString());
+                        
                         setIsLoggedIn(true);
                         window.history.replaceState({}, document.title, window.location.pathname);
                     }
@@ -184,6 +208,7 @@
             // Handle logout
             const handleLogout = () => {
                 localStorage.removeItem('access_token');
+                localStorage.removeItem('token_expiry');
                 setIsLoggedIn(false);
                 setResult(null);
             };
@@ -497,19 +522,25 @@
                         {/* Login Prompt */}
                         {!isLoggedIn && (
                             <section className="mb-8">
-                                <Card>
-                                    <div className="p-8 text-center">
-                                        <div className="max-w-md mx-auto">
-                                            <h3 className="text-xl font-semibold text-white mb-4">Ready to Sync Your Music?</h3>
-                                            <p className="text-gray-400 mb-6">
-                                                Please login with your Spotify account to start transferring your liked songs.
-                                            </p>
-                                            <Button onClick={handleLogin} className="rounded-[25px] py-3 px-8">
+                                <div className="min-h-[60vh] flex items-center justify-center">
+                                    <Card className="w-full max-w-lg">
+                                        <div className="p-12 text-center">
+                                            <div className="mb-8">
+                                                <div className="text-6xl mb-4">🎵</div>
+                                                <h3 className="text-2xl font-bold text-white mb-4">Ready to Sync Your Music?</h3>
+                                                <p className="text-gray-400 text-lg leading-relaxed">
+                                                    Connect your Spotify account to start transferring your liked songs into organized playlists
+                                                </p>
+                                            </div>
+                                            <Button onClick={handleLogin} className="rounded-[30px] py-4 px-10 text-lg font-semibold shadow-lg hover:shadow-xl transition-all duration-300">
                                                 <LogInIcon /> Login with Spotify
                                             </Button>
+                                            <p className="text-xs text-gray-500 mt-6">
+                                                Your session will be saved for easy access
+                                            </p>
                                         </div>
-                                    </div>
-                                </Card>
+                                    </Card>
+                                </div>
                             </section>
                         )}
                     </main>
