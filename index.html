@@ -123,7 +123,7 @@
             // Spotify OAuth Configuration
             const SPOTIFY_CONFIG = {
                 client_id: '6aa4b46ee49d40a292632af532a593b3',
-                redirect_uri: 'http://127.0.0.1:3000/callback.html',
+                redirect_uri: `${window.location.origin}/callback.html`,
                 scope: 'user-library-read playlist-modify-private playlist-modify-public'
             };
 

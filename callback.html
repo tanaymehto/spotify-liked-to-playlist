@@ -17,7 +17,7 @@
         body: new URLSearchParams({
           grant_type: 'authorization_code',
           code: code,
-          redirect_uri: 'http://127.0.0.1:3000/callback.html'
+          redirect_uri: `${window.location.origin}/callback.html`
         })
       })
       .then(res => res.json())
