@@ -244,6 +244,43 @@
                 setResult(null);
             };
 
+            // Helper function to check if API response indicates expired token
+            const isTokenExpired = (response, data) => {
+                return response.status === 401 || 
+                       (data && (data.error === 'invalid_token' || 
+                                data.error_description?.includes('token') ||
+                                data.error_description?.includes('expired')));
+            };
+
+            // Helper function to make authenticated API calls with auto-retry
+            const makeSpotifyAPICall = async (url, options = {}) => {
+                const token = localStorage.getItem('access_token');
+                const headers = { 
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json',
+                    ...options.headers
+                };
+
+                const response = await fetch(url, { ...options, headers });
+                const data = await response.json();
+
+                // Check if token is expired
+                if (isTokenExpired(response, data)) {
+                    // Clear expired token and force re-login
+                    localStorage.removeItem('access_token');
+                    localStorage.removeItem('token_expiry');
+                    setIsLoggedIn(false);
+                    setError('Your session has expired. Please login again.');
+                    throw new Error('TOKEN_EXPIRED');
+                }
+
+                if (!response.ok) {
+                    throw new Error(data.error_description || data.error || `HTTP ${response.status}`);
+                }
+
+                return { response, data };
+            };
+
             // Main transfer function
             const handleSubmit = async (e) => {
                 e.preventDefault();
@@ -260,20 +297,8 @@
                 setResult(null);
 
                 try {
-                    const token = localStorage.getItem('access_token');
-                    const headers = { 
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json'
-                    };
-
                     // 1. Get User ID
-                    const userResponse = await fetch('https://api.spotify.com/v1/me', { headers });
-                    const user = await userResponse.json();
-
-                    if (!userResponse.ok) {
-                        console.error('User API Error:', user);
-                        throw new Error(`Failed to get user info: ${user.error?.message || 'Unknown error'}`);
-                    }
+                    const { data: user } = await makeSpotifyAPICall('https://api.spotify.com/v1/me');
 
                     // 2. Create Playlist
                     const playlistData = {
@@ -284,19 +309,12 @@
 
                     console.log('Creating playlist with data:', playlistData);
 
-                    const playlistResponse = await fetch(`https://api.spotify.com/v1/users/${user.id}/playlists`, {
+                    const { data: playlist } = await makeSpotifyAPICall(`https://api.spotify.com/v1/users/${user.id}/playlists`, {
                         method: 'POST',
-                        headers,
                         body: JSON.stringify(playlistData)
                     });
 
-                    const playlist = await playlistResponse.json();
-                    console.log('Playlist response:', playlist);
-
-                    if (!playlistResponse.ok) {
-                        console.error('Playlist API Error:', playlist);
-                        throw new Error(`Failed to create playlist: ${playlist.error?.message || 'Check console for details'}`);
-                    }
+                    console.log('Playlist created:', playlist);
 
                     // 3. Fetch Liked Songs
                     let offset = 0;
@@ -304,16 +322,9 @@
                     const songLimit = formData.songLimit ? parseInt(formData.songLimit) : null;
 
                     while (true) {
-                        const tracksResponse = await fetch(
-                            `https://api.spotify.com/v1/me/tracks?limit=50&offset=${offset}`,
-                            { headers }
+                        const { data: tracksData } = await makeSpotifyAPICall(
+                            `https://api.spotify.com/v1/me/tracks?limit=50&offset=${offset}`
                         );
-                        const tracksData = await tracksResponse.json();
-
-                        if (!tracksResponse.ok) {
-                            console.error('Tracks API Error:', tracksData);
-                            throw new Error(`Failed to fetch liked songs: ${tracksData.error?.message || 'Unknown error'}`);
-                        }
 
                         const newUris = tracksData.items.map(item => item.track.uri);
                         uris.push(...newUris);
@@ -331,17 +342,10 @@
                     for (let i = 0; i < uris.length; i += batchSize) {
                         const batch = uris.slice(i, i + batchSize);
                         
-                        const addResponse = await fetch(`https://api.spotify.com/v1/playlists/${playlist.id}/tracks`, {
+                        await makeSpotifyAPICall(`https://api.spotify.com/v1/playlists/${playlist.id}/tracks`, {
                             method: 'POST',
-                            headers,
                             body: JSON.stringify({ uris: batch })
                         });
-
-                        if (!addResponse.ok) {
-                            const addError = await addResponse.json();
-                            console.error('Add tracks API Error:', addError);
-                            throw new Error(`Failed to add songs to playlist: ${addError.error?.message || 'Unknown error'}`);
-                        }
                     }
 
                     setResult({
@@ -353,6 +357,11 @@
 
                 } catch (error) {
                     console.error('Full error details:', error);
+                    
+                    if (error.message === 'TOKEN_EXPIRED') {
+                        return; // Error already handled in makeSpotifyAPICall
+                    }
+                    
                     setResult({
                         type: "error",
                         message: error.message || "An error occurred while creating the playlist."
