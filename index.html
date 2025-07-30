@@ -115,17 +115,232 @@
             const [isLoading, setIsLoading] = useState(false);
             const [isLoggedIn, setIsLoggedIn] = useState(false);
             const [result, setResult] = useState(null);
+            const [error, setError] = useState(''); // Added missing error state
             const [formData, setFormData] = useState({
                 playlistName: "My Liked Songs",
                 isPublic: false,
                 songLimit: "",
+                explicitFilter: "all", // "all", "explicit", "clean"
+                popularityFilter: "", // minimum popularity (0-100)
+                releaseDateFilter: "", // year filter (e.g., "2020")
+                durationFilter: "", // max duration in minutes
+                excludeRemixes: false,
+                excludeLive: false,
             });
+
+            // 🔥 GLOBAL ERROR CATCHER - Catches ANY unhandled errors in the entire app
+            useEffect(() => {
+                const handleGlobalError = (event) => {
+                    console.error(' GLOBAL ERROR CAUGHT:', event.error);
+                    try {
+                        setError(`Unexpected error: ${event.error?.message || 'Something went wrong'}. Please refresh the page.`);
+                        setIsLoading(false);
+                    } catch (e) {
+                        console.error('Failed to handle global error:', e);
+                        alert('Critical error - please refresh the page');
+                    }
+                };
+
+                const handleUnhandledRejection = (event) => {
+                    console.error(' UNHANDLED PROMISE REJECTION:', event.reason);
+                    try {
+                        setError(`Network or processing error: ${event.reason?.message || 'Something went wrong'}. Please try again.`);
+                        setIsLoading(false);
+                    } catch (e) {
+                        console.error('Failed to handle promise rejection:', e);
+                        alert('Critical error - please refresh the page');
+                    }
+                };
+
+                // Add global error listeners
+                window.addEventListener('error', handleGlobalError);
+                window.addEventListener('unhandledrejection', handleUnhandledRejection);
+
+                // Cleanup on unmount
+                return () => {
+                    window.removeEventListener('error', handleGlobalError);
+                    window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+                };
+            }, []);
 
             // Spotify OAuth Configuration
             const SPOTIFY_CONFIG = {
                 client_id: '6aa4b46ee49d40a292632af532a593b3',
                 redirect_uri: `${window.location.origin}/callback.html`,
                 scope: 'user-library-read playlist-modify-private playlist-modify-public'
+            };
+
+            // 🔥 ULTIMATE FALLBACK SYSTEM - Catches EVERYTHING that slips through
+            const ultimateFallback = (error, context = 'Unknown') => {
+                console.error(` ULTIMATE FALLBACK TRIGGERED in ${context}:`, error);
+                
+                // Force clear all problematic states
+                try {
+                    setIsLoading(false);
+                    setResult(null);
+                } catch (e) {
+                    console.error('Error clearing states:', e);
+                }
+                
+                // Try to extract any meaningful message
+                let message = 'Something unexpected happened';
+                
+                try {
+                    if (typeof error === 'string') {
+                        message = error;
+                    } else if (error?.message) {
+                        message = error.message;
+                    } else if (error?.toString) {
+                        message = error.toString();
+                    } else {
+                        message = JSON.stringify(error);
+                    }
+                } catch (e) {
+                    message = 'An unknown error occurred';
+                }
+                
+                // Set error with fallback message
+                try {
+                    setError(`🆘 ${message}. Please refresh the page and try again. If this keeps happening, try clearing your browser cache.`);
+                } catch (e) {
+                    // Even setError failed - this should never happen but just in case
+                    console.error('Even setError failed:', e);
+                    alert('Critical error - please refresh the page');
+                }
+            };
+
+            // 🔥 COMPREHENSIVE ERROR HANDLER - Handles ALL possible errors
+            const handleError = (error, context = '') => {
+                try {
+                    console.error(`Error in ${context}:`, error);
+                    
+                    // Clear any existing results
+                    setResult(null);
+                    setIsLoading(false);
+                    
+                    // Check for specific error types
+                    if (typeof error === 'string') {
+                        setError(error);
+                        return;
+                    }
+                    
+                    const errorMessage = error?.message || 'Unknown error occurred';
+                    
+                    // Token/Authentication Errors
+                    if (errorMessage.includes('token') || 
+                        errorMessage.includes('unauthorized') || 
+                        errorMessage.includes('401') ||
+                        errorMessage.includes('invalid_token') ||
+                        errorMessage.includes('expired')) {
+                        
+                        localStorage.removeItem('access_token');
+                        localStorage.removeItem('token_expiry');
+                        setIsLoggedIn(false);
+                        setError('Your session has expired. Please login again.');
+                        return;
+                    }
+                    
+                    // JSON/Parse Errors
+                    if (errorMessage.includes('JSON') || 
+                        errorMessage.includes('Unexpected token') ||
+                        errorMessage.includes('SyntaxError')) {
+                        setError('Server returned invalid data. Please check your internet connection and try again.');
+                        return;
+                    }
+                    
+                    // Network Errors
+                    if (errorMessage.includes('fetch') || 
+                        errorMessage.includes('network') ||
+                        errorMessage.includes('Failed to fetch')) {
+                        setError('Network error. Please check your internet connection and try again.');
+                        return;
+                    }
+                    
+                    // Spotify API Errors
+                    if (errorMessage.includes('spotify') || 
+                        errorMessage.includes('playlist') ||
+                        errorMessage.includes('tracks')) {
+                        setError('Spotify API error. Please try again in a few moments.');
+                        return;
+                    }
+                    
+                    // Rate Limit Errors
+                    if (errorMessage.includes('rate') || 
+                        errorMessage.includes('limit') ||
+                        errorMessage.includes('429')) {
+                        setError('Too many requests. Please wait a minute and try again.');
+                        return;
+                    }
+                    
+                    // Generic error fallback
+                    setError(`Something went wrong: ${errorMessage}. Please try again.`);
+                    
+                } catch (fallbackError) {
+                    // If even handleError fails, use ultimate fallback
+                    ultimateFallback(error, `handleError-${context}`);
+                }
+            };
+
+            // 🔥 BULLETPROOF API CALLER - Never fails silently
+            const makeSpotifyAPICall = async (url, options = {}) => {
+                try {
+                    const token = localStorage.getItem('access_token');
+                    if (!token) {
+                        throw new Error('No access token found. Please login again.');
+                    }
+
+                    const headers = { 
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json',
+                        ...options.headers
+                    };
+
+                    const response = await fetch(url, { ...options, headers });
+                    
+                    // Check if response is ok
+                    if (!response.ok) {
+                        if (response.status === 401) {
+                            throw new Error('TOKEN_EXPIRED');
+                        }
+                        if (response.status === 429) {
+                            throw new Error('Rate limit exceeded. Please wait and try again.');
+                        }
+                        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                    }
+
+                    // Check content type
+                    const contentType = response.headers.get('content-type');
+                    if (!contentType || !contentType.includes('application/json')) {
+                        throw new Error('Server returned non-JSON response');
+                    }
+
+                    const data = await response.json();
+                    
+                    // Check for Spotify API errors in response
+                    if (data.error) {
+                        if (data.error === 'invalid_token' || data.error_description?.includes('token')) {
+                            throw new Error('TOKEN_EXPIRED');
+                        }
+                        throw new Error(data.error_description || data.error);
+                    }
+
+                    return { response, data };
+                    
+                } catch (error) {
+                    try {
+                        if (error.message === 'TOKEN_EXPIRED') {
+                            localStorage.removeItem('access_token');
+                            localStorage.removeItem('token_expiry');
+                            setIsLoggedIn(false);
+                            throw new Error('Your session has expired. Please login again.');
+                        }
+                        throw error;
+                    } catch (fallbackError) {
+                        // If even error handling fails, use ultimate fallback
+                        ultimateFallback(error, 'makeSpotifyAPICall');
+                        throw fallbackError;
+                    }
+                }
             };
 
             // Check if user is logged in on component mount
@@ -227,12 +442,7 @@
                         setError('Authentication failed. Please try again.');
                     }
                 } catch (error) {
-                    console.error('OAuth callback error:', error);
-                    if (error.name === 'SyntaxError' && error.message.includes('JSON')) {
-                        setError('Authentication service returned invalid data. Please check your Spotify app settings and try again.');
-                    } else {
-                        setError('Authentication failed. Please try logging in again.');
-                    }
+                    handleError(error, 'OAuth callback');
                 }
             };
 
@@ -252,49 +462,20 @@
                                 data.error_description?.includes('expired')));
             };
 
-            // Helper function to make authenticated API calls with auto-retry
-            const makeSpotifyAPICall = async (url, options = {}) => {
-                const token = localStorage.getItem('access_token');
-                const headers = { 
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json',
-                    ...options.headers
-                };
-
-                const response = await fetch(url, { ...options, headers });
-                const data = await response.json();
-
-                // Check if token is expired
-                if (isTokenExpired(response, data)) {
-                    // Clear expired token and force re-login
-                    localStorage.removeItem('access_token');
-                    localStorage.removeItem('token_expiry');
-                    setIsLoggedIn(false);
-                    setError('Your session has expired. Please login again.');
-                    throw new Error('TOKEN_EXPIRED');
-                }
-
-                if (!response.ok) {
-                    throw new Error(data.error_description || data.error || `HTTP ${response.status}`);
-                }
-
-                return { response, data };
-            };
-
             // Main transfer function
             const handleSubmit = async (e) => {
                 e.preventDefault();
                 
+                // Clear any previous errors
+                setError('');
+                setResult(null);
+                
                 if (!isLoggedIn) {
-                    setResult({
-                        type: "error",
-                        message: "Please login with Spotify first."
-                    });
+                    handleError('Please login with Spotify first.', 'handleSubmit');
                     return;
                 }
 
                 setIsLoading(true);
-                setResult(null);
 
                 try {
                     // 1. Get User ID
@@ -307,18 +488,14 @@
                         public: formData.isPublic
                     };
 
-                    console.log('Creating playlist with data:', playlistData);
-
                     const { data: playlist } = await makeSpotifyAPICall(`https://api.spotify.com/v1/users/${user.id}/playlists`, {
                         method: 'POST',
                         body: JSON.stringify(playlistData)
                     });
 
-                    console.log('Playlist created:', playlist);
-
-                    // 3. Fetch Liked Songs
+                    // 3. Fetch Liked Songs with Filtering
                     let offset = 0;
-                    let uris = [];
+                    let allTracks = [];
                     const songLimit = formData.songLimit ? parseInt(formData.songLimit) : null;
 
                     while (true) {
@@ -326,16 +503,56 @@
                             `https://api.spotify.com/v1/me/tracks?limit=50&offset=${offset}`
                         );
 
-                        const newUris = tracksData.items.map(item => item.track.uri);
-                        uris.push(...newUris);
+                        allTracks.push(...tracksData.items);
 
                         if (tracksData.items.length < 50) break;
-                        if (songLimit && uris.length >= songLimit) {
-                            uris = uris.slice(0, songLimit);
-                            break;
-                        }
                         offset += 50;
+
+                        // Don't fetch more than needed if we have a song limit
+                        if (songLimit && allTracks.length >= songLimit * 2) break; // Fetch extra for filtering
                     }
+
+                    // Apply filters
+                    let filteredTracks = allTracks.filter(item => {
+                        const track = item.track;
+                        
+                        // Explicit content filter
+                        if (formData.explicitFilter === 'clean' && track.explicit) return false;
+                        if (formData.explicitFilter === 'explicit' && !track.explicit) return false;
+                        
+                        // Popularity filter
+                        if (formData.popularityFilter && track.popularity < parseInt(formData.popularityFilter)) return false;
+                        
+                        // Duration filter (convert ms to minutes)
+                        if (formData.durationFilter && (track.duration_ms / 60000) > parseInt(formData.durationFilter)) return false;
+                        
+                        // Release date filter
+                        if (formData.releaseDateFilter) {
+                            const releaseYear = new Date(track.album.release_date).getFullYear();
+                            if (releaseYear < parseInt(formData.releaseDateFilter)) return false;
+                        }
+                        
+                        // Exclude remixes
+                        if (formData.excludeRemixes) {
+                            const trackName = track.name.toLowerCase();
+                            if (trackName.includes('remix') || trackName.includes('mix') || trackName.includes('rmx')) return false;
+                        }
+                        
+                        // Exclude live versions
+                        if (formData.excludeLive) {
+                            const trackName = track.name.toLowerCase();
+                            if (trackName.includes('live') || trackName.includes('concert') || trackName.includes('tour')) return false;
+                        }
+                        
+                        return true;
+                    });
+
+                    // Apply song limit after filtering
+                    if (songLimit && filteredTracks.length > songLimit) {
+                        filteredTracks = filteredTracks.slice(0, songLimit);
+                    }
+
+                    const uris = filteredTracks.map(item => item.track.uri);
 
                     // 4. Add Songs to Playlist (100 at a time)
                     const batchSize = 100;
@@ -348,26 +565,41 @@
                         });
                     }
 
+                    // Success!
+                    setError(''); // Clear any errors
+                    
+                    // Build filter summary for success message
+                    let filterSummary = [];
+                    if (formData.explicitFilter === 'clean') filterSummary.push('clean songs only');
+                    if (formData.explicitFilter === 'explicit') filterSummary.push('explicit songs only');
+                    if (formData.popularityFilter) filterSummary.push(`popularity ≥${formData.popularityFilter}`);
+                    if (formData.durationFilter) filterSummary.push(`≤${formData.durationFilter} min`);
+                    if (formData.releaseDateFilter) filterSummary.push(`from ${formData.releaseDateFilter}+`);
+                    if (formData.excludeRemixes) filterSummary.push('no remixes');
+                    if (formData.excludeLive) filterSummary.push('no live versions');
+                    
+                    const filterText = filterSummary.length > 0 ? ` (${filterSummary.join(', ')})` : '';
+                    
                     setResult({
                         type: "success",
                         message: `Successfully created "${formData.playlistName}"!`,
                         link: playlist.external_urls.spotify,
-                        tracks: uris.length
+                        tracks: uris.length,
+                        filterInfo: filterText
                     });
 
                 } catch (error) {
-                    console.error('Full error details:', error);
-                    
-                    if (error.message === 'TOKEN_EXPIRED') {
-                        return; // Error already handled in makeSpotifyAPICall
+                    try {
+                        handleError(error, 'handleSubmit');
+                    } catch (fallbackError) {
+                        ultimateFallback(error, 'handleSubmit');
                     }
-                    
-                    setResult({
-                        type: "error",
-                        message: error.message || "An error occurred while creating the playlist."
-                    });
                 } finally {
-                    setIsLoading(false);
+                    try {
+                        setIsLoading(false);
+                    } catch (error) {
+                        console.error('Failed to set loading state:', error);
+                    }
                 }
             };
 
@@ -483,6 +715,100 @@
                                                                 className="bg-[#0a0a0a] border-gray-600"
                                                             />
                                                         </div>
+
+                                                        {/* Content Filtering */}
+                                                        <div className="space-y-3 border-t border-gray-600 pt-4">
+                                                            <h4 className="text-white text-sm font-medium">Content Filters</h4>
+                                                            
+                                                            <div className="space-y-2">
+                                                                <label className="text-white text-sm block">Explicit Content</label>
+                                                                <select
+                                                                    value={formData.explicitFilter}
+                                                                    onChange={(e) => setFormData(prev => ({ ...prev, explicitFilter: e.target.value }))}
+                                                                    className="w-full px-3 py-2 bg-[#0a0a0a] border border-gray-600 rounded-md text-white focus:border-[#1db954] focus:outline-none"
+                                                                >
+                                                                    <option value="all">All songs (explicit + clean)</option>
+                                                                    <option value="clean">Only clean songs (no explicit)</option>
+                                                                    <option value="explicit">Only explicit songs</option>
+                                                                </select>
+                                                            </div>
+
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                                <div className="flex items-center space-x-2">
+                                                                    <Checkbox
+                                                                        id="excludeRemixes"
+                                                                        checked={formData.excludeRemixes}
+                                                                        onChange={(checked) => setFormData(prev => ({ ...prev, excludeRemixes: checked }))}
+                                                                    />
+                                                                    <label htmlFor="excludeRemixes" className="text-white text-sm">Exclude remixes</label>
+                                                                </div>
+
+                                                                <div className="flex items-center space-x-2">
+                                                                    <Checkbox
+                                                                        id="excludeLive"
+                                                                        checked={formData.excludeLive}
+                                                                        onChange={(checked) => setFormData(prev => ({ ...prev, excludeLive: checked }))}
+                                                                    />
+                                                                    <label htmlFor="excludeLive" className="text-white text-sm">Exclude live versions</label>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Quality & Popularity Filters */}
+                                                        <div className="space-y-3 border-t border-gray-600 pt-4">
+                                                            <h4 className="text-white text-sm font-medium">Quality Filters</h4>
+                                                            
+                                                            <div className="space-y-2">
+                                                                <label htmlFor="popularityFilter" className="text-white text-sm block">Minimum popularity (0-100)</label>
+                                                                <Input
+                                                                    id="popularityFilter"
+                                                                    type="number"
+                                                                    min="0"
+                                                                    max="100"
+                                                                    placeholder="e.g., 50 for moderately popular"
+                                                                    value={formData.popularityFilter}
+                                                                    onChange={(e) => setFormData(prev => ({ ...prev, popularityFilter: e.target.value }))}
+                                                                    className="bg-[#0a0a0a] border-gray-600"
+                                                                />
+                                                            </div>
+
+                                                            <div className="space-y-2">
+                                                                <label htmlFor="durationFilter" className="text-white text-sm block">Maximum song duration (minutes)</label>
+                                                                <Input
+                                                                    id="durationFilter"
+                                                                    type="number"
+                                                                    min="1"
+                                                                    max="30"
+                                                                    placeholder="e.g., 5 for max 5 minutes"
+                                                                    value={formData.durationFilter}
+                                                                    onChange={(e) => setFormData(prev => ({ ...prev, durationFilter: e.target.value }))}
+                                                                    className="bg-[#0a0a0a] border-gray-600"
+                                                                />
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Date Filters */}
+                                                        <div className="space-y-3 border-t border-gray-600 pt-4">
+                                                            <h4 className="text-white text-sm font-medium">Date Filters</h4>
+                                                            
+                                                            <div className="space-y-2">
+                                                                <label htmlFor="releaseDateFilter" className="text-white text-sm block">Released after year (optional)</label>
+                                                                <Input
+                                                                    id="releaseDateFilter"
+                                                                    type="number"
+                                                                    min="1900"
+                                                                    max="2025"
+                                                                    placeholder="e.g., 2020 for songs from 2020 onwards"
+                                                                    value={formData.releaseDateFilter}
+                                                                    onChange={(e) => setFormData(prev => ({ ...prev, releaseDateFilter: e.target.value }))}
+                                                                    className="bg-[#0a0a0a] border-gray-600"
+                                                                />
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="text-xs text-gray-500 bg-[#0a0a0a] p-3 rounded border border-gray-700">
+                                                            💡 <strong>Pro tip:</strong> These filters help you create themed playlists like "Clean Hits Only", "Recent Bangers", or "Short & Sweet Songs"!
+                                                        </div>
                                                     </div>
                                                 )}
                                             </div>
@@ -513,6 +839,12 @@
                                                             playlistName: "My Liked Songs",
                                                             isPublic: false,
                                                             songLimit: "",
+                                                            explicitFilter: "all",
+                                                            popularityFilter: "",
+                                                            releaseDateFilter: "",
+                                                            durationFilter: "",
+                                                            excludeRemixes: false,
+                                                            excludeLive: false,
                                                         });
                                                         setResult(null);
                                                     }}
@@ -521,6 +853,59 @@
                                                 </Button>
                                             </div>
                                         </form>
+                                    </div>
+                                </Card>
+                            </section>
+                        )}
+
+                        {/* Error Display Section */}
+                        {error && (
+                            <section className="mb-8">
+                                <Card className="border-2 bg-red-900/20 border-red-600">
+                                    <div className="p-6">
+                                        <div className="flex items-center justify-between flex-wrap gap-4">
+                                            <div>
+                                                <p className="font-medium text-red-400">
+                                                    ⚠️ {error}
+                                                </p>
+                                                <p className="text-gray-400 text-sm mt-1">
+                                                    If this problem persists, try refreshing the page or clearing your browser cache.
+                                                </p>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <Button
+                                                    variant="ghost"
+                                                    onClick={() => {
+                                                        // 🔥 RECOVERY MODE - Clears everything and resets app
+                                                        try {
+                                                            localStorage.clear();
+                                                            setError('');
+                                                            setResult(null);
+                                                            setIsLoggedIn(false);
+                                                            setIsLoading(false);
+                                                            setFormData({
+                                                                playlistName: "My Liked Songs",
+                                                                isPublic: false,
+                                                                songLimit: "",
+                                                            });
+                                                            window.location.reload();
+                                                        } catch (e) {
+                                                            alert('Please manually refresh the page');
+                                                        }
+                                                    }}
+                                                    className="text-yellow-400 hover:text-yellow-300 text-xs"
+                                                >
+                                                    🔄 Recovery Mode
+                                                </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    onClick={() => setError('')}
+                                                    className="text-red-400 hover:text-red-300"
+                                                >
+                                                    Dismiss
+                                                </Button>
+                                            </div>
+                                        </div>
                                     </div>
                                 </Card>
                             </section>
@@ -540,7 +925,7 @@
                                                 </p>
                                                 {result.tracks && (
                                                     <p className="text-gray-400 text-sm mt-1">
-                                                        Transferred {result.tracks} tracks successfully
+                                                        Transferred {result.tracks} tracks successfully{result.filterInfo}
                                                     </p>
                                                 )}
                                             </div>
@@ -559,28 +944,6 @@
                             </section>
                         )}
 
-                        {/* Login Prompt */}
-                        {!isLoggedIn && (
-                            <section className="mb-8">
-                                <div className="min-h-[60vh] flex items-center justify-center">
-                                    <div className="w-full max-w-lg text-center">
-                                        <div className="mb-8">
-                                            <div className="text-6xl mb-4">🎵</div>
-                                            <h3 className="text-2xl font-bold text-white mb-4">Ready to Sync Your Music?</h3>
-                                            <p className="text-gray-400 text-lg leading-relaxed">
-                                                Connect your Spotify account to start transferring your liked songs into organized playlists
-                                            </p>
-                                        </div>
-                                        <Button onClick={handleLogin} className="rounded-[30px] py-4 px-10 text-lg font-semibold shadow-lg hover:shadow-xl transition-all duration-300">
-                                            <LogInIcon /> Login with Spotify
-                                        </Button>
-                                        <p className="text-xs text-gray-500 mt-6">
-                                            Your session will be saved for easy access
-                                        </p>
-                                    </div>
-                                </div>
-                            </section>
-                        )}
                     </main>
                 </div>
             );
