@@ -190,6 +190,22 @@
                         })
                     });
 
+                    // Check if response is OK before parsing JSON
+                    if (!response.ok) {
+                        const errorText = await response.text();
+                        console.error('Spotify API error:', response.status, errorText);
+                        setError(`Authentication failed. Please try logging in again.`);
+                        return;
+                    }
+
+                    const contentType = response.headers.get('content-type');
+                    if (!contentType || !contentType.includes('application/json')) {
+                        const errorText = await response.text();
+                        console.error('Non-JSON response from Spotify:', errorText);
+                        setError('Authentication service returned an unexpected response. Please try again.');
+                        return;
+                    }
+
                     const data = await response.json();
                     
                     if (data.access_token) {
@@ -203,9 +219,20 @@
                         
                         setIsLoggedIn(true);
                         window.history.replaceState({}, document.title, window.location.pathname);
+                    } else if (data.error) {
+                        console.error('Spotify API error:', data.error, data.error_description);
+                        setError(`Spotify authentication error: ${data.error_description || data.error}`);
+                    } else {
+                        console.error('No access token received:', data);
+                        setError('Authentication failed. Please try again.');
                     }
                 } catch (error) {
                     console.error('OAuth callback error:', error);
+                    if (error.name === 'SyntaxError' && error.message.includes('JSON')) {
+                        setError('Authentication service returned invalid data. Please check your Spotify app settings and try again.');
+                    } else {
+                        setError('Authentication failed. Please try logging in again.');
+                    }
                 }
             };
 

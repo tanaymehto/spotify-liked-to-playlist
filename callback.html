@@ -20,7 +20,24 @@
           redirect_uri: `${window.location.origin}/callback.html`
         })
       })
-      .then(res => res.json())
+      .then(res => {
+        if (!res.ok) {
+          return res.text().then(errorText => {
+            console.error('Spotify API error:', res.status, errorText);
+            throw new Error(`HTTP ${res.status}: ${errorText}`);
+          });
+        }
+        
+        const contentType = res.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          return res.text().then(errorText => {
+            console.error('Non-JSON response from Spotify:', errorText);
+            throw new Error('Authentication service returned unexpected response');
+          });
+        }
+        
+        return res.json();
+      })
       .then(data => {
         if (data.access_token) {
           localStorage.setItem('access_token', data.access_token);
@@ -32,13 +49,21 @@
           localStorage.setItem('token_expiry', expiryTime.toString());
           
           window.location.href = 'index.html';
+        } else if (data.error) {
+          console.error('Spotify API error:', data.error, data.error_description);
+          document.body.innerHTML = `<h2>Spotify Authentication Error</h2><p>${data.error_description || data.error}</p><p>Please check your Spotify app settings and try again.</p>`;
         } else {
-          document.body.innerHTML = '<h2>Failed to get access token.</h2>';
+          console.error('No access token received:', data);
+          document.body.innerHTML = '<h2>Authentication Failed</h2><p>No access token received. Please try again.</p>';
         }
       })
       .catch(error => {
         console.error('OAuth callback error:', error);
-        document.body.innerHTML = '<h2>Authentication failed. Please try again.</h2>';
+        if (error.message.includes('JSON') || error.message.includes('Unexpected token')) {
+          document.body.innerHTML = '<h2>Authentication Error</h2><p>The Spotify app configuration may be incorrect. Please check the redirect URI settings.</p>';
+        } else {
+          document.body.innerHTML = '<h2>Authentication Failed</h2><p>Please try logging in again. If the problem persists, check your internet connection.</p>';
+        }
       });;
     } else {
       document.body.innerHTML = '<h2>No code found in URL.</h2>';
